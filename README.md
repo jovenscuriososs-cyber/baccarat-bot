@@ -66,19 +66,20 @@ MAX_BET=500
 
 ```
 baccarat-bot/
-├── main.py                      # Entry point
+├── scraper.py                   # Web scraper do Bac Bo
+├── example_usage.py             # Exemplos de uso
+├── main.py                      # Entry point (em desenvolvimento)
 ├── requirements.txt             # Dependências
 ├── .env.example                 # Template de env
-├── src/
+├── src/                         # (Em desenvolvimento)
 │   ├── core/
 │   │   ├── bot_manager.py       # Gerenciador central
-│   │   ├── scraper_tipminer.py  # Web scraping
 │   │   ├── prediction_engine.py # ML e previsões
 │   │   └── bankroll_manager.py  # Gestão de apostas
 │   ├── integrations/
 │   │   ├── firebase_client.py   # Firebase DB
 │   │   ├── greenapi_client.py   # WhatsApp
-│   │   └── telegram_notifier.py # Telegram (stub)
+│   │   └── telegram_notifier.py # Telegram
 │   ├── utils/
 │   │   ├── logger_setup.py      # Logging
 │   │   ├── config.py            # Configurações
@@ -93,24 +94,45 @@ baccarat-bot/
 
 ## 🎯 Como Usar
 
-### 1. Scraping Automático
-O bot busca automaticamente resultados do TipMiner a cada 10 segundos.
+### 1. Scraping Básico
 
-### 2. Análise e Previsão
+```python
+from scraper import BacBoScraper
+
+scraper = BacBoScraper(headless=True)
+results = scraper.scrape_results_selenium()
+print(scraper.format_results(results))
+```
+
+### 2. Executar Exemplos
+
+```bash
+python example_usage.py
+```
+
+Escolha entre:
+1. Scraping básico
+2. Scraping com BeautifulSoup
+3. Salvar dados em JSON/CSV
+4. Comparação de métodos
+5. **Monitoramento contínuo** (recomendado)
+6. Análise e processamento
+
+### 3. Análise e Previsão (em breve)
 Gera previsões baseadas em:
 - Padrões históricos (streaks, alternância)
 - Regressão à média
 - Machine Learning
 - Análise de séries temporais
 
-### 3. Apostas e Notificações
+### 4. Apostas e Notificações (em breve)
 Cada previsão envia:
 - Notificação via WhatsApp
 - Registro no Firebase
 - Log local
 - Dashboard atualizado
 
-### 4. Dashboard
+### 5. Dashboard (em breve)
 Acesse em: http://localhost:5000
 
 ## 🔄 Fluxo de Dados
@@ -125,6 +147,72 @@ Firebase (armazenamento)
 WhatsApp + Dashboard (notificações)
 ```
 
+## 📊 Estrutura dos Dados
+
+Cada resultado contém:
+- `type`: Tipo de resultado (PLAYER, BANKER, TIE)
+- `value`: Valor numérico (0-12)
+- `timestamp`: Horário do resultado (HH:MM:SS)
+
+### Exemplo de saída JSON:
+```json
+{
+  "timestamp": "2024-01-15T10:42:30.123456",
+  "total": 15,
+  "results": [
+    {
+      "type": "PLAYER",
+      "value": 8,
+      "timestamp": "10:49"
+    },
+    {
+      "type": "BANKER",
+      "value": 9,
+      "timestamp": "10:10"
+    }
+  ]
+}
+```
+
+## 🔧 Métodos do Scraper
+
+### `scrape_results_selenium()`
+- Usa Selenium para aguardar carregamento de JS
+- Melhor para páginas dinâmicas
+- Mais lento, mas mais confiável
+
+### `scrape_results_requests()`
+- Usa requests + BeautifulSoup
+- Mais rápido
+- Requer que o HTML já tenha sido carregado
+
+### `scrape_with_beautifulsoup()`
+- Foca especificamente na tabela "Tabela Bac Bo"
+- Melhor precisão
+- Otimizado para a estrutura do TipMiner
+
+## 🐛 Troubleshooting
+
+### Erro: "ChromeDriver not found"
+Baixe o ChromeDriver correspondente à sua versão do Chrome:
+https://chromedriver.chromium.org/
+
+### Erro: "Nenhum resultado encontrado"
+1. Verifique se a página está acessível
+2. Tente usar `scrape_results_selenium()` em vez de `requests`
+3. Verifique se a estrutura do HTML mudou no TipMiner
+
+### Erro: "ImportError: No module named 'selenium'"
+```bash
+pip install -r requirements.txt
+```
+
+## 📚 Referências
+
+- [Selenium Documentation](https://selenium-python.readthedocs.io/)
+- [BeautifulSoup Documentation](https://www.crummy.com/software/BeautifulSoup/bs4/doc/)
+- [TipMiner](https://www.tipminer.com/br/cassinos/evolution/bac-bo-ao-vivo)
+
 ## ⚠️ Aviso Legal
 
 **Este bot é para fins EDUCACIONAIS e SIMULAÇÃO.**
@@ -134,26 +222,13 @@ WhatsApp + Dashboard (notificações)
 - Use por sua conta e risco
 - Nunca coloque dinheiro real sem compreender riscos
 
-## 📖 Documentação Completa
-
-Veja a pasta `/docs` para:
-- [Instalação Detalhada](docs/INSTALACAO.md)
-- [Configuração](docs/CONFIGURACAO.md)
-- [Arquitetura](docs/ARQUITETURA.md)
-- [Estratégias](docs/ESTRATEGIAS.md)
-- [API Reference](docs/API.md)
-
-## 🤝 Contribuindo
-
-Pull requests são bem-vindas!
-
-## 📞 Suporte
-
-Abra uma issue no GitHub para reportar bugs ou sugestões.
-
 ## 📄 Licença
 
-MIT License - veja LICENSE para detalhes
+MIT License
+
+## 👤 Autor
+
+jovenscuriososs-cyber
 
 ---
 
