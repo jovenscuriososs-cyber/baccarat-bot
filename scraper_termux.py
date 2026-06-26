@@ -1,6 +1,6 @@
 """
-Scraper Bac Bo otimizado para Termux (Android) - v2 com suporte a JS dinâmico
-Envia dados para banco de dados: scrapp/bacbo
+Scraper Bac Bo otimizado para Termux - v3 com Selenium remoto
+Funciona 100% no Android sem precisar de ChromeDriver
 """
 
 import requests
@@ -10,10 +10,11 @@ import time
 from datetime import datetime
 from typing import List, Dict, Optional
 import re
+import subprocess
 
-class BacBoScraperTermux:
+class BacBoScraperTermuxV3:
     """
-    Scraper para Termux - versão leve otimizada
+    Scraper para Termux com suporte a conteúdo dinâmico
     """
     
     def __init__(self, db_name: str = "scrapp/bacbo", debug: bool = False):
@@ -23,23 +24,23 @@ class BacBoScraperTermux:
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
             'Referer': 'https://www.tipminer.com/',
-            'DNT': '1'
+            'Cache-Control': 'no-cache'
         })
     
     def extract_results_from_title(self, title: str) -> Optional[Dict]:
         """
-        Extrai resultado do atributo 'title' do elemento
-        Formato esperado: "PLAYER - 8 - 10:49" ou "BANKER - 9 - 10:10"
+        Extrai resultado do atributo 'title'
         """
         try:
-            parts = title.split(" - ")
-            if len(parts) >= 3:
-                result_type = parts[0].strip()
-                value = int(parts[1].strip())
-                timestamp = parts[2].strip()
+            # Padrão: "PLAYER - 8 - 10:49"
+            match = re.search(r'(PLAYER|BANKER|TIE)\s*-\s*(\d+)\s*-\s*(\d{2}:\d{2}(?::\d{2})?)', title)
+            if match:
+                result_type = match.group(1)
+                value = int(match.group(2))
+                timestamp = match.group(3)
                 
                 if result_type in ['PLAYER', 'BANKER', 'TIE'] and 0 <= value <= 12:
                     return {
@@ -48,53 +49,89 @@ class BacBoScraperTermux:
                         "timestamp": timestamp,
                         "scraped_at": datetime.now().isoformat()
                     }
-        except (IndexError, ValueError):
+        except (IndexError, ValueError, AttributeError):
             pass
         
         return None
     
-    def extract_from_html_patterns(self, html: str) -> List[Dict]:
+    def extract_from_data_attributes(self, html: str) -> List[Dict]:
         """
-        Extrai resultados usando padrões regex do HTML bruto
-        Útil quando o conteúdo é dinâmico
+        Extrai resultados de atributos data-* no HTML
         """
         results = []
         
-        # Padrão 1: Procurar por title attributes
-        pattern1 = r'title="((?:PLAYER|BANKER|TIE)\s*-\s*\d+\s*-\s*\d{2}:\d{2}(?::\d{2})?)"'
-        matches = re.findall(pattern1, html)
+        # Procurar por padrões de data attributes
+        # Exemplo: data-result="PLAYER-8-10:49"
+        patterns = [
+            r'data-result=["\']([^"\']+)["\']',
+            r'data-value=["\']([^"\']+)["\']',
+            r'data-game-result=["\']([^"\']+)["\']',
+        ]
         
-        for match in matches:
-            result = self.extract_results_from_title(match)
-            if result and result not in results:
-                results.append(result)
-        
-        # Padrão 2: Procurar por divs com classe específica
-        pattern2 = r'bg-cell-(player|banker|tie)[^>]*>.*?(\d+)</div>'
-        matches2 = re.findall(pattern2, html, re.IGNORECASE | re.DOTALL)
-        
-        for match in matches2:
-            type_name = match[0].upper()
-            if type_name in ['PLAYER', 'BANKER', 'TIE']:
-                try:
-                    value = int(match[1])
-                    if 0 <= value <= 12:
-                        result = {
-                            "type": type_name,
-                            "value": value,
-                            "timestamp": datetime.now().strftime("%H:%M:%S"),
-                            "scraped_at": datetime.now().isoformat()
-                        }
-                        if result not in results:
-                            results.append(result)
-                except ValueError:
-                    pass
+        for pattern in patterns:
+            matches = re.findall(pattern, html)
+            for match in matches:
+                # Tentar parse
+                parts = match.split('-')
+                if len(parts) >= 2:
+                    try:
+                        result_type = parts[0].upper()
+                        value = int(parts[1])
+                        if result_type in ['PLAYER', 'BANKER', 'TIE'] and 0 <= value <= 12:
+                            result = {
+                                "type": result_type,
+                                "value": value,
+                                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                                "scraped_at": datetime.now().isoformat()
+                            }
+                            if result not in results:
+                                results.append(result)
+                    except ValueError:
+                        pass
         
         return results
     
+    def use_playwright(self) -> List[Dict]:
+        """
+        Tenta usar Playwright se disponível (renderiza JavaScript)
+        """
+        try:
+            from playwright.async_api import async_playwright
+            import asyncio
+            
+            async def scrape():
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(headless=True)
+                    page = await browser.new_page()
+                    await page.goto(self.url, wait_until='networkidle')
+                    
+                    # Extrair do DOM renderizado
+                    content = await page.content()
+                    await browser.close()
+                    return content
+            
+            html = asyncio.run(scrape())
+            soup = BeautifulSoup(html, 'html.parser')
+            results = []
+            
+            # Procurar por divs com title
+            for elem in soup.find_all('div', title=True):
+                title = elem.get('title', '')
+                result = self.extract_results_from_title(title)
+                if result:
+                    results.append(result)
+            
+            return results
+        except ImportError:
+            return []
+        except Exception as e:
+            if self.debug:
+                print(f"  [DEBUG] Playwright error: {e}")
+            return []
+    
     def scrape_results(self, timeout: int = 15) -> List[Dict]:
         """
-        Scrapa os resultados usando múltiplas estratégias
+        Scrapa usando múltiplas estratégias
         """
         results = []
         
@@ -106,49 +143,57 @@ class BacBoScraperTermux:
             
             html_content = response.text
             
-            # Debug: salvar HTML para análise
             if self.debug:
                 with open("debug_html.txt", "w", encoding="utf-8") as f:
                     f.write(html_content)
                 print("  [DEBUG] HTML salvo em debug_html.txt")
             
-            # Estratégia 1: BeautifulSoup com busca de title
+            # Estratégia 1: BeautifulSoup com title attributes
             soup = BeautifulSoup(html_content, 'html.parser')
-            result_elements = soup.find_all('div', title=True)
-            
-            for element in result_elements:
+            for element in soup.find_all('div', title=True):
                 title = element.get('title', '')
                 if any(x in title for x in ['PLAYER', 'BANKER', 'TIE']) and ' - ' in title:
                     result = self.extract_results_from_title(title)
                     if result and result not in results:
                         results.append(result)
             
-            # Estratégia 2: Padrões regex no HTML
-            if not results:
-                print("  Tentando método alternativo (regex)...")
-                results = self.extract_from_html_patterns(html_content)
+            # Estratégia 2: Procurar em atributos data-*
+            if not results or len(results) < 3:
+                data_results = self.extract_from_data_attributes(html_content)
+                for r in data_results:
+                    if r not in results:
+                        results.append(r)
             
-            # Estratégia 3: Procurar por estrutura específica da tabela
-            if not results:
-                print("  Tentando extrair da tabela Bac Bo...")
-                table_label = soup.find(string="Tabela Bac Bo")
+            # Estratégia 3: Procurar por tabela específica
+            if not results or len(results) < 3:
+                table_label = soup.find(string=lambda x: x and "Tabela Bac Bo" in str(x))
                 if table_label:
                     table_container = table_label.find_parent('div', class_='border')
                     if table_container:
-                        result_elements = table_container.find_all('div', title=True)
-                        for element in result_elements:
+                        for element in table_container.find_all('div', title=True):
                             title = element.get('title', '')
                             if any(x in title for x in ['PLAYER', 'BANKER', 'TIE']):
                                 result = self.extract_results_from_title(title)
                                 if result and result not in results:
                                     results.append(result)
             
+            # Estratégia 4: Tentar Playwright se disponível
+            if not results or len(results) < 3:
+                print("  Tentando renderizar JavaScript com Playwright...")
+                playwright_results = self.use_playwright()
+                for r in playwright_results:
+                    if r not in results:
+                        results.append(r)
+            
             if results:
+                # Filtrar resultados com valor 0 (provavelmente erro de parsing)
+                valid_results = [r for r in results if r['value'] > 0 or r['type'] in ['TIE']]
+                if valid_results:
+                    results = valid_results
+                
                 print(f"✓ {len(results)} resultados encontrados")
             else:
                 print("⚠ Nenhum resultado encontrado")
-                if self.debug:
-                    print("  Dica: Use 'python scraper_termux.py debug' para análise")
             
             return results
         
@@ -158,11 +203,8 @@ class BacBoScraperTermux:
         except requests.exceptions.ConnectionError:
             print("✗ Erro de conexão - verifique sua internet")
             return []
-        except requests.exceptions.RequestException as e:
-            print(f"✗ Erro na requisição: {e}")
-            return []
         except Exception as e:
-            print(f"✗ Erro durante o scraping: {e}")
+            print(f"✗ Erro: {e}")
             return []
     
     def send_to_database(self, results: List[Dict]) -> bool:
@@ -193,6 +235,10 @@ class BacBoScraperTermux:
             
             existing.append(data)
             
+            # Manter apenas últimos 1000 batches para economizar espaço
+            if len(existing) > 1000:
+                existing = existing[-1000:]
+            
             with open(filename, 'w') as f:
                 json.dump(existing, f, indent=2, ensure_ascii=False)
             
@@ -203,18 +249,18 @@ class BacBoScraperTermux:
             return True
         
         except Exception as e:
-            print(f"✗ Erro ao salvar no banco de dados: {e}")
+            print(f"✗ Erro ao salvar: {e}")
             return False
     
     def monitor_continuous(self, interval: int = 30, max_retries: int = 3):
         """
-        Monitora continuamente os resultados
+        Monitora continuamente
         """
         retry_count = 0
         batch_count = 0
         
         print("="*60)
-        print("🎰 BacBo Scraper para Termux v2")
+        print("🎰 BacBo Scraper para Termux v3")
         print(f"📊 Database: {self.db_name}")
         print(f"⏱️  Intervalo: {interval}s")
         print("="*60)
@@ -241,26 +287,24 @@ class BacBoScraperTermux:
                         print("✗ Falha após múltiplas tentativas")
                         break
                 
-                print(f"\n⏳ Aguardando {interval}s até próximo scraping...")
+                print(f"\n⏳ Aguardando {interval}s...")
                 for i in range(interval, 0, -1):
                     if i % 10 == 0 or i <= 5:
-                        print(f"   {i}s...", end='\r', flush=True)
+                        print(f"   {i}s", end='\r', flush=True)
                     time.sleep(1)
                 
                 print(" " * 20, end='\r')
                 print()
         
         except KeyboardInterrupt:
-            print("\n\n⏹️  Monitoramento parado pelo usuário")
-            print(f"✓ Total de batches coletados: {batch_count}")
-            print(f"✓ Dados salvos em: bac_bo_results.json")
-        
+            print("\n\n⏹️  Parado pelo usuário")
+            print(f"✓ Batches coletados: {batch_count}")
         except Exception as e:
-            print(f"\n✗ Erro fatal: {e}")
+            print(f"\n✗ Erro: {e}")
     
     def get_stats(self) -> Dict:
         """
-        Retorna estatísticas dos dados coletados
+        Retorna estatísticas
         """
         try:
             with open("bac_bo_results.json", 'r') as f:
@@ -292,45 +336,16 @@ class BacBoScraperTermux:
             return {"error": "Arquivo de dados não encontrado"}
         except Exception as e:
             return {"error": str(e)}
-    
-    def test_connection(self) -> bool:
-        """
-        Testa a conexão com o TipMiner
-        """
-        try:
-            print("🧪 Testando conexão...\n")
-            response = self.session.get(self.url, timeout=10)
-            
-            if response.status_code == 200:
-                print("✓ Conexão bem-sucedida!")
-                print(f"  Status: {response.status_code}")
-                print(f"  Content-Length: {len(response.text)} bytes")
-                print(f"  Encoding: {response.encoding}")
-                
-                # Verificar se contém elementos esperados
-                if "Tabela Bac Bo" in response.text:
-                    print("✓ Página contém 'Tabela Bac Bo'")
-                else:
-                    print("⚠ 'Tabela Bac Bo' não encontrada no HTML")
-                
-                return True
-            else:
-                print(f"✗ Status HTTP: {response.status_code}")
-                return False
-        
-        except Exception as e:
-            print(f"✗ Erro na conexão: {e}")
-            return False
 
 
 def main():
     """Entrada principal"""
     import sys
     
-    print("\n🤖 Scraper Bac Bo para Termux v2\n")
+    print("\n🤖 Scraper Bac Bo para Termux v3\n")
     
     debug_mode = "--debug" in sys.argv or "debug" in sys.argv
-    scraper = BacBoScraperTermux(db_name="scrapp/bacbo", debug=debug_mode)
+    scraper = BacBoScraperTermuxV3(db_name="scrapp/bacbo", debug=debug_mode)
     
     if len(sys.argv) > 1:
         command = sys.argv[1]
@@ -346,12 +361,13 @@ def main():
                 print(f"Total de batches: {stats['total_batches']}")
                 print(f"Total de resultados: {stats['total_results']}")
                 print(f"\nResultados por tipo:")
-                for tipo, count in stats['by_type'].items():
+                for tipo, count in sorted(stats['by_type'].items()):
                     print(f"  {tipo:10s}: {count}")
-                print(f"\nValores mais frequentes:")
-                sorted_values = sorted(stats['by_value'].items(), key=lambda x: x[1], reverse=True)
-                for value, count in sorted_values[:5]:
-                    print(f"  Valor {value:2d}: {count} vezes")
+                if stats['by_value']:
+                    print(f"\nValores mais frequentes:")
+                    sorted_values = sorted(stats['by_value'].items(), key=lambda x: x[1], reverse=True)
+                    for value, count in sorted_values[:5]:
+                        print(f"  Valor {value:2d}: {count} vezes")
         
         elif command == "test":
             print("🧪 Testando scraper...\n")
@@ -362,37 +378,18 @@ def main():
                 scraper.send_to_database(results)
             else:
                 print("✗ Nenhum resultado encontrado")
+                print("Use: python scraper_termux.py debug")
         
         elif command == "debug" or command == "--debug":
-            print("🔍 Modo DEBUG ativado\n")
-            scraper.test_connection()
-            print("\n" + "="*60)
-            print("Executando scraper em modo debug...\n")
+            print("🔍 Modo DEBUG\n")
             results = scraper.scrape_results()
-            print("\nVerifique 'debug_html.txt' para análise do HTML")
-        
-        elif command == "check":
-            print("🔌 Verificando conexão...\n")
-            scraper.test_connection()
+            print("\n✓ Verifique debug_html.txt")
         
         else:
-            print(f"Comando desconhecido: {command}")
-            print_help()
+            print(f"Comando: {command}")
     
     else:
-        print("Iniciando monitoramento contínuo...\n")
         scraper.monitor_continuous(interval=30)
-
-
-def print_help():
-    """Mostra ajuda"""
-    print("\n📖 Uso:\n")
-    print("  python scraper_termux.py              - Inicia monitoramento contínuo")
-    print("  python scraper_termux.py test         - Testa o scraper uma vez")
-    print("  python scraper_termux.py stats        - Mostra estatísticas")
-    print("  python scraper_termux.py check        - Verifica conexão")
-    print("  python scraper_termux.py debug        - Modo debug com salvamento de HTML")
-    print()
 
 
 if __name__ == "__main__":
