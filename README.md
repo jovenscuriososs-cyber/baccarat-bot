@@ -2,6 +2,18 @@
 
 Bot profissional que scrapa resultados do TipMiner em tempo real, analisa padrões, faz previsões e notifica via WhatsApp.
 
+## 📱 Versão Android (Termux)
+
+**➜ [Guia Completo de Setup no Android](ANDROID_SETUP.md)**
+
+Setup rápido:
+```bash
+bash setup.sh
+python scraper_termux.py
+```
+
+---
+
 ## ⚙️ Funcionalidades
 
 - ✅ Web scraping em tempo real (TipMiner)
@@ -12,32 +24,50 @@ Bot profissional que scrapa resultados do TipMiner em tempo real, analisa padrõ
 - ✅ Dashboard web
 - ✅ Histórico completo de apostas
 - ✅ Estatísticas e relatórios
+- ✅ **Compatível com Android (Termux)**
 
 ## 📋 Pré-requisitos
 
 - Python 3.9+
 - Conta no TipMiner (acesso ao histórico)
-- Credenciais Firebase
-- Credenciais GreenAPI (WhatsApp)
-- Navegador com Tampermonkey (para scraping)
+- Credenciais Firebase (opcional)
+- Credenciais GreenAPI (opcional)
+- Navegador com Tampermonkey (opcional)
 
 ## 🚀 Instalação Rápida
 
+### Desktop/Linux:
+
 ```bash
 # Clonar repositório
-git clone https://github.com/Pezado/baccarat-bot.git
+git clone https://github.com/jovenscuriososs-cyber/baccarat-bot.git
 cd baccarat-bot
 
 # Instalar dependências
 pip install -r requirements.txt
 
-# Configurar variáveis de ambiente
+# Configurar variáveis de ambiente (opcional)
 cp .env.example .env
-# Editar .env com suas credenciais
 
 # Executar bot
-python main.py
+python scraper.py
 ```
+
+### Android (Termux):
+
+```bash
+# Clonar repositório
+git clone https://github.com/jovenscuriososs-cyber/baccarat-bot.git
+cd baccarat-bot
+
+# Setup automático
+bash setup.sh
+
+# Executar scraper
+python scraper_termux.py
+```
+
+**[→ Guia Detalhado de Android](ANDROID_SETUP.md)**
 
 ## 🔐 Configuração de Credenciais
 
@@ -54,7 +84,7 @@ GREENAPI_INSTANCE_ID=7107654572
 GREENAPI_TOKEN=499b5912cda643e5a6ec732529f1d2ae1be155aa7f6247a683
 
 # TipMiner
-TIPMINER_URL=https://www.tipminer.com/br/historico/jonbet/bac-bo
+TIPMINER_URL=https://www.tipminer.com/br/cassinos/evolution/bac-bo-ao-vivo
 
 # Bot Config
 STARTING_BANKROLL=1000
@@ -66,10 +96,15 @@ MAX_BET=500
 
 ```
 baccarat-bot/
-├── scraper.py                   # Web scraper do Bac Bo
+├── 📱 ANDROID_SETUP.md          # Guia Android/Termux
+├── scraper.py                   # Web scraper completo
+├── scraper_termux.py            # Scraper otimizado para Termux
 ├── example_usage.py             # Exemplos de uso
+├── setup.sh                     # Setup automático Termux
+├── requirements.txt             # Dependências desktop
+├── requirements-termux.txt      # Dependências Android
+├── README.md                    # Este arquivo
 ├── main.py                      # Entry point (em desenvolvimento)
-├── requirements.txt             # Dependências
 ├── .env.example                 # Template de env
 ├── src/                         # (Em desenvolvimento)
 │   ├── core/
@@ -94,7 +129,7 @@ baccarat-bot/
 
 ## 🎯 Como Usar
 
-### 1. Scraping Básico
+### 1. Scraping Básico (Desktop)
 
 ```python
 from scraper import BacBoScraper
@@ -104,7 +139,23 @@ results = scraper.scrape_results_selenium()
 print(scraper.format_results(results))
 ```
 
-### 2. Executar Exemplos
+### 2. Scraping no Android (Termux)
+
+```bash
+# Teste rápido
+python scraper_termux.py test
+
+# Monitoramento contínuo
+python scraper_termux.py
+
+# Ver estatísticas
+python scraper_termux.py stats
+
+# Modo debug
+python scraper_termux.py debug
+```
+
+### 3. Executar Exemplos (Desktop)
 
 ```bash
 python example_usage.py
@@ -115,24 +166,24 @@ Escolha entre:
 2. Scraping com BeautifulSoup
 3. Salvar dados em JSON/CSV
 4. Comparação de métodos
-5. **Monitoramento contínuo** (recomendado)
+5. Monitoramento contínuo
 6. Análise e processamento
 
-### 3. Análise e Previsão (em breve)
+### 4. Análise e Previsão (em breve)
 Gera previsões baseadas em:
 - Padrões históricos (streaks, alternância)
 - Regressão à média
 - Machine Learning
 - Análise de séries temporais
 
-### 4. Apostas e Notificações (em breve)
+### 5. Apostas e Notificações (em breve)
 Cada previsão envia:
 - Notificação via WhatsApp
 - Registro no Firebase
 - Log local
 - Dashboard atualizado
 
-### 5. Dashboard (em breve)
+### 6. Dashboard (em breve)
 Acesse em: http://localhost:5000
 
 ## 🔄 Fluxo de Dados
@@ -174,7 +225,7 @@ Cada resultado contém:
 }
 ```
 
-## 🔧 Métodos do Scraper
+## 🔧 Métodos do Scraper (Desktop)
 
 ### `scrape_results_selenium()`
 - Usa Selenium para aguardar carregamento de JS
@@ -191,26 +242,55 @@ Cada resultado contém:
 - Melhor precisão
 - Otimizado para a estrutura do TipMiner
 
+## 🔧 Métodos do Scraper (Termux)
+
+### `scrape_results()`
+- Otimizado para Android
+- 3 estratégias de extração automáticas
+- Suporta conteúdo dinâmico
+
+### Comandos Termux:
+```bash
+python scraper_termux.py test      # Teste rápido
+python scraper_termux.py           # Monitoramento contínuo
+python scraper_termux.py stats     # Estatísticas
+python scraper_termux.py check     # Verificar conexão
+python scraper_termux.py debug     # Modo debug
+```
+
 ## 🐛 Troubleshooting
 
 ### Erro: "ChromeDriver not found"
-Baixe o ChromeDriver correspondente à sua versão do Chrome:
+Baixe o ChromeDriver (desktop apenas):
 https://chromedriver.chromium.org/
 
 ### Erro: "Nenhum resultado encontrado"
 1. Verifique se a página está acessível
 2. Tente usar `scrape_results_selenium()` em vez de `requests`
 3. Verifique se a estrutura do HTML mudou no TipMiner
+4. Use modo debug: `python scraper_termux.py debug`
 
-### Erro: "ImportError: No module named 'selenium'"
+### Erro: "ModuleNotFoundError"
 ```bash
+# Desktop
 pip install -r requirements.txt
+
+# Android/Termux
+pip install -r requirements-termux.txt
+# ou
+bash setup.sh
+```
+
+### Android: Permissão negada
+```bash
+chmod +x setup.sh
 ```
 
 ## 📚 Referências
 
 - [Selenium Documentation](https://selenium-python.readthedocs.io/)
 - [BeautifulSoup Documentation](https://www.crummy.com/software/BeautifulSoup/bs4/doc/)
+- [Termux Documentation](https://wiki.termux.com/)
 - [TipMiner](https://www.tipminer.com/br/cassinos/evolution/bac-bo-ao-vivo)
 
 ## ⚠️ Aviso Legal
