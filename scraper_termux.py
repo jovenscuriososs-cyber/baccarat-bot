@@ -1,5 +1,5 @@
 """
-Scraper Bac Bo otimizado para Termux (Android)
+Scraper Bac Bo otimizado para Termux (Android) - v2 com suporte a JS dinâmico
 Envia dados para banco de dados: scrapp/bacbo
 """
 
@@ -9,18 +9,24 @@ import json
 import time
 from datetime import datetime
 from typing import List, Dict, Optional
+import re
 
 class BacBoScraperTermux:
     """
-    Scraper para Termux - versão leve sem Selenium
+    Scraper para Termux - versão leve otimizada
     """
     
-    def __init__(self, db_name: str = "scrapp/bacbo"):
+    def __init__(self, db_name: str = "scrapp/bacbo", debug: bool = False):
         self.url = "https://www.tipminer.com/br/cassinos/evolution/bac-bo-ao-vivo"
         self.db_name = db_name
+        self.debug = debug
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
+            'Referer': 'https://www.tipminer.com/',
+            'DNT': '1'
         })
     
     def extract_results_from_title(self, title: str) -> Optional[Dict]:
@@ -35,49 +41,123 @@ class BacBoScraperTermux:
                 value = int(parts[1].strip())
                 timestamp = parts[2].strip()
                 
-                return {
-                    "type": result_type,
-                    "value": value,
-                    "timestamp": timestamp,
-                    "scraped_at": datetime.now().isoformat()
-                }
+                if result_type in ['PLAYER', 'BANKER', 'TIE'] and 0 <= value <= 12:
+                    return {
+                        "type": result_type,
+                        "value": value,
+                        "timestamp": timestamp,
+                        "scraped_at": datetime.now().isoformat()
+                    }
         except (IndexError, ValueError):
             pass
         
         return None
     
-    def scrape_results(self, timeout: int = 10) -> List[Dict]:
+    def extract_from_html_patterns(self, html: str) -> List[Dict]:
         """
-        Scrapa os resultados usando requests + BeautifulSoup
-        Optimizado para Termux
+        Extrai resultados usando padrões regex do HTML bruto
+        Útil quando o conteúdo é dinâmico
+        """
+        results = []
+        
+        # Padrão 1: Procurar por title attributes
+        pattern1 = r'title="((?:PLAYER|BANKER|TIE)\s*-\s*\d+\s*-\s*\d{2}:\d{2}(?::\d{2})?)"'
+        matches = re.findall(pattern1, html)
+        
+        for match in matches:
+            result = self.extract_results_from_title(match)
+            if result and result not in results:
+                results.append(result)
+        
+        # Padrão 2: Procurar por divs com classe específica
+        pattern2 = r'bg-cell-(player|banker|tie)[^>]*>.*?(\d+)</div>'
+        matches2 = re.findall(pattern2, html, re.IGNORECASE | re.DOTALL)
+        
+        for match in matches2:
+            type_name = match[0].upper()
+            if type_name in ['PLAYER', 'BANKER', 'TIE']:
+                try:
+                    value = int(match[1])
+                    if 0 <= value <= 12:
+                        result = {
+                            "type": type_name,
+                            "value": value,
+                            "timestamp": datetime.now().strftime("%H:%M:%S"),
+                            "scraped_at": datetime.now().isoformat()
+                        }
+                        if result not in results:
+                            results.append(result)
+                except ValueError:
+                    pass
+        
+        return results
+    
+    def scrape_results(self, timeout: int = 15) -> List[Dict]:
+        """
+        Scrapa os resultados usando múltiplas estratégias
         """
         results = []
         
         try:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Acessando {self.url}...")
-            response = self.session.get(self.url, timeout=timeout)
+            
+            response = self.session.get(self.url, timeout=timeout, allow_redirects=True)
             response.raise_for_status()
             
-            soup = BeautifulSoup(response.content, 'html.parser')
+            html_content = response.text
             
-            # Procura por todos os divs que contêm o atributo title com os resultados
+            # Debug: salvar HTML para análise
+            if self.debug:
+                with open("debug_html.txt", "w", encoding="utf-8") as f:
+                    f.write(html_content)
+                print("  [DEBUG] HTML salvo em debug_html.txt")
+            
+            # Estratégia 1: BeautifulSoup com busca de title
+            soup = BeautifulSoup(html_content, 'html.parser')
             result_elements = soup.find_all('div', title=True)
             
             for element in result_elements:
                 title = element.get('title', '')
-                # Verifica se o título contém padrão de resultado
                 if any(x in title for x in ['PLAYER', 'BANKER', 'TIE']) and ' - ' in title:
                     result = self.extract_results_from_title(title)
-                    if result:
+                    if result and result not in results:
                         results.append(result)
+            
+            # Estratégia 2: Padrões regex no HTML
+            if not results:
+                print("  Tentando método alternativo (regex)...")
+                results = self.extract_from_html_patterns(html_content)
+            
+            # Estratégia 3: Procurar por estrutura específica da tabela
+            if not results:
+                print("  Tentando extrair da tabela Bac Bo...")
+                table_label = soup.find(string="Tabela Bac Bo")
+                if table_label:
+                    table_container = table_label.find_parent('div', class_='border')
+                    if table_container:
+                        result_elements = table_container.find_all('div', title=True)
+                        for element in result_elements:
+                            title = element.get('title', '')
+                            if any(x in title for x in ['PLAYER', 'BANKER', 'TIE']):
+                                result = self.extract_results_from_title(title)
+                                if result and result not in results:
+                                    results.append(result)
             
             if results:
                 print(f"✓ {len(results)} resultados encontrados")
             else:
                 print("⚠ Nenhum resultado encontrado")
+                if self.debug:
+                    print("  Dica: Use 'python scraper_termux.py debug' para análise")
             
             return results
         
+        except requests.exceptions.Timeout:
+            print(f"✗ Timeout na conexão (>{timeout}s)")
+            return []
+        except requests.exceptions.ConnectionError:
+            print("✗ Erro de conexão - verifique sua internet")
+            return []
         except requests.exceptions.RequestException as e:
             print(f"✗ Erro na requisição: {e}")
             return []
@@ -88,14 +168,12 @@ class BacBoScraperTermux:
     def send_to_database(self, results: List[Dict]) -> bool:
         """
         Envia os resultados para o banco de dados
-        Salva em arquivo JSON local (compatível com Termux)
         """
         if not results:
             print("⚠ Nenhum resultado para enviar")
             return False
         
         try:
-            # Preparar dados
             data = {
                 "timestamp": datetime.now().isoformat(),
                 "total": len(results),
@@ -103,10 +181,8 @@ class BacBoScraperTermux:
                 "database": self.db_name
             }
             
-            # Salvar em arquivo JSON (estratégia de banco de dados simples)
             filename = f"bac_bo_results.json"
             
-            # Tentar carregar dados existentes
             try:
                 with open(filename, 'r') as f:
                     existing = json.load(f)
@@ -115,10 +191,8 @@ class BacBoScraperTermux:
             except:
                 existing = []
             
-            # Adicionar novos resultados
             existing.append(data)
             
-            # Salvar
             with open(filename, 'w') as f:
                 json.dump(existing, f, indent=2, ensure_ascii=False)
             
@@ -135,13 +209,12 @@ class BacBoScraperTermux:
     def monitor_continuous(self, interval: int = 30, max_retries: int = 3):
         """
         Monitora continuamente os resultados
-        Envia para o banco de dados a cada intervalo
         """
         retry_count = 0
         batch_count = 0
         
         print("="*60)
-        print("🎰 BacBo Scraper para Termux")
+        print("🎰 BacBo Scraper para Termux v2")
         print(f"📊 Database: {self.db_name}")
         print(f"⏱️  Intervalo: {interval}s")
         print("="*60)
@@ -152,13 +225,11 @@ class BacBoScraperTermux:
                 results = self.scrape_results()
                 
                 if results:
-                    retry_count = 0  # Reset retry counter
+                    retry_count = 0
                     batch_count += 1
                     
-                    # Enviar para banco de dados
                     self.send_to_database(results)
                     
-                    # Mostrar últimos 5 resultados
                     print("\n📋 Últimos resultados:")
                     for r in results[-5:]:
                         print(f"   {r['type']:6s} | Valor: {r['value']:2d} | {r['timestamp']}")
@@ -170,14 +241,13 @@ class BacBoScraperTermux:
                         print("✗ Falha após múltiplas tentativas")
                         break
                 
-                # Aguardar antes de próxima execução
                 print(f"\n⏳ Aguardando {interval}s até próximo scraping...")
                 for i in range(interval, 0, -1):
                     if i % 10 == 0 or i <= 5:
-                        print(f"   {i}s...", end='\r')
+                        print(f"   {i}s...", end='\r', flush=True)
                     time.sleep(1)
                 
-                print(" " * 20, end='\r')  # Limpar linha
+                print(" " * 20, end='\r')
                 print()
         
         except KeyboardInterrupt:
@@ -202,7 +272,6 @@ class BacBoScraperTermux:
                 total_batches = len(data)
                 total_results = sum(batch.get('total', 0) for batch in data)
                 
-                # Contar por tipo
                 all_results = []
                 for batch in data:
                     all_results.extend(batch.get('results', []))
@@ -223,18 +292,46 @@ class BacBoScraperTermux:
             return {"error": "Arquivo de dados não encontrado"}
         except Exception as e:
             return {"error": str(e)}
+    
+    def test_connection(self) -> bool:
+        """
+        Testa a conexão com o TipMiner
+        """
+        try:
+            print("🧪 Testando conexão...\n")
+            response = self.session.get(self.url, timeout=10)
+            
+            if response.status_code == 200:
+                print("✓ Conexão bem-sucedida!")
+                print(f"  Status: {response.status_code}")
+                print(f"  Content-Length: {len(response.text)} bytes")
+                print(f"  Encoding: {response.encoding}")
+                
+                # Verificar se contém elementos esperados
+                if "Tabela Bac Bo" in response.text:
+                    print("✓ Página contém 'Tabela Bac Bo'")
+                else:
+                    print("⚠ 'Tabela Bac Bo' não encontrada no HTML")
+                
+                return True
+            else:
+                print(f"✗ Status HTTP: {response.status_code}")
+                return False
+        
+        except Exception as e:
+            print(f"✗ Erro na conexão: {e}")
+            return False
 
 
 def main():
     """Entrada principal"""
     import sys
     
-    print("\n🤖 Scraper Bac Bo para Termux\n")
+    print("\n🤖 Scraper Bac Bo para Termux v2\n")
     
-    # Criar scraper
-    scraper = BacBoScraperTermux(db_name="scrapp/bacbo")
+    debug_mode = "--debug" in sys.argv or "debug" in sys.argv
+    scraper = BacBoScraperTermux(db_name="scrapp/bacbo", debug=debug_mode)
     
-    # Verificar argumentos
     if len(sys.argv) > 1:
         command = sys.argv[1]
         
@@ -266,12 +363,23 @@ def main():
             else:
                 print("✗ Nenhum resultado encontrado")
         
+        elif command == "debug" or command == "--debug":
+            print("🔍 Modo DEBUG ativado\n")
+            scraper.test_connection()
+            print("\n" + "="*60)
+            print("Executando scraper em modo debug...\n")
+            results = scraper.scrape_results()
+            print("\nVerifique 'debug_html.txt' para análise do HTML")
+        
+        elif command == "check":
+            print("🔌 Verificando conexão...\n")
+            scraper.test_connection()
+        
         else:
             print(f"Comando desconhecido: {command}")
             print_help()
     
     else:
-        # Modo monitoramento contínuo
         print("Iniciando monitoramento contínuo...\n")
         scraper.monitor_continuous(interval=30)
 
@@ -282,6 +390,8 @@ def print_help():
     print("  python scraper_termux.py              - Inicia monitoramento contínuo")
     print("  python scraper_termux.py test         - Testa o scraper uma vez")
     print("  python scraper_termux.py stats        - Mostra estatísticas")
+    print("  python scraper_termux.py check        - Verifica conexão")
+    print("  python scraper_termux.py debug        - Modo debug com salvamento de HTML")
     print()
 
 
